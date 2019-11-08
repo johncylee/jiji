@@ -1,12 +1,23 @@
 package jiji
 
 import (
+	"github.com/johncylee/jiji"
 	"gopkg.in/confluentinc/confluent-kafka-go.v1/kafka"
 )
 
 const (
 	KAFKA_TIMEOUT_MS = 30000 // 30 seconds
 )
+
+var Logger = jiji.Logger
+
+var Verbose = jiji.Verbose
+
+func debugf(s string, args ...interface{}) {
+	if Verbose {
+		Logger.Printf(s, args...)
+	}
+}
 
 type Kafka struct {
 	Brokers        string
