@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"errors"
 	"net/http"
+	"net/url"
 )
 
 type HTTP struct {
 	Client   *http.Client
 	URL      string
-	User     string // For basic auth. Ignored if empty.
-	Password string
+	user     string
+	password string
 }
 
 const (
@@ -18,7 +19,17 @@ const (
 )
 
 func (t *HTTP) Connect() (err error) {
-	return nil
+	url, err := url.Parse(t.URL)
+	if err != nil {
+		return
+	}
+	if url.User != nil {
+		if password, set := url.User.Password(); set {
+			t.user = url.User.Username()
+			t.password = password
+		}
+	}
+	return
 }
 
 func (t *HTTP) Close() {
@@ -28,7 +39,7 @@ func (t *HTTP) Close() {
 func (t *HTTP) Send(b []byte) (err error) {
 	var res *http.Response
 	body := bytes.NewReader(b)
-	if t.User == "" {
+	if t.user == "" {
 		res, err = t.Client.Post(t.URL, ContentTypeJSON, body)
 		if err != nil {
 			return
@@ -40,7 +51,7 @@ func (t *HTTP) Send(b []byte) (err error) {
 			return
 		}
 		req.Header.Set("Content-Type", ContentTypeJSON)
-		req.SetBasicAuth(t.User, t.Password)
+		req.SetBasicAuth(t.user, t.password)
 		res, err = t.Client.Do(req)
 		if err != nil {
 			return
