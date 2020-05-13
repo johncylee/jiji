@@ -3,8 +3,9 @@ package jiji
 import (
 	"encoding/binary"
 	"encoding/json"
-	"github.com/boltdb/bolt"
 	"time"
+
+	"github.com/boltdb/bolt"
 )
 
 const (
@@ -23,7 +24,7 @@ var Retry = 5 * time.Second
 
 type Delivery struct {
 	DBPath      string
-	Recv        chan interface{}
+	Send        chan interface{}
 	Transport   Transport
 	db          *bolt.DB
 	connected   bool
@@ -72,7 +73,7 @@ func (t *Delivery) send_msg(msg interface{}) (err error) {
 		}
 	NEXT: // drain the channel
 		select {
-		case msg = <-t.Recv:
+		case msg = <-t.Send:
 		default:
 			msg = nil
 		}
@@ -140,11 +141,11 @@ func (t *Delivery) close() {
 	FOR:
 		for {
 			select {
-			case msg, ok := <-t.Recv:
+			case msg, ok := <-t.Send:
 				if !ok {
 					break FOR
 				}
-				debugln("Close.Recv:", msg)
+				debugln("Close.Send:", msg)
 				buf, err := json.Marshal(msg)
 				if err != nil {
 					Logger.Println("json.Marshal:", err)
@@ -200,7 +201,7 @@ FOR:
 			}
 		}
 		select {
-		case msg := <-t.Recv:
+		case msg := <-t.Send:
 			err = t.send_msg(msg)
 			if err != nil {
 				break FOR

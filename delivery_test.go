@@ -94,14 +94,14 @@ func testDelivery(transport Transport, t *testing.T) {
 	Retry = 500 * time.Millisecond
 	delivery := Delivery{
 		DBPath:    DBPath,
-		Recv:      make(chan interface{}, 10),
+		Send:      make(chan interface{}, 10),
 		Transport: transport,
 	}
 	go func() {
 		for i := 1; i < 10; i++ {
 			unix := time.Now().Unix()
 			Logger.Println("client deliver:", unix)
-			delivery.Recv <- unix
+			delivery.Send <- unix
 			time.Sleep(100 * time.Millisecond)
 		}
 		delivery.Close()
@@ -112,19 +112,19 @@ func testDelivery(transport Transport, t *testing.T) {
 	}
 }
 
-func TestCloseRecv(t *testing.T) {
+func TestCloseSend(t *testing.T) {
 	transport := MockTransport{
 		Available: true,
 		T:         t,
 	}
 	delivery := Delivery{
 		DBPath:    DBPath,
-		Recv:      make(chan interface{}),
+		Send:      make(chan interface{}),
 		Transport: &transport,
 	}
 	go func() {
 		time.Sleep(time.Second)
-		close(delivery.Recv)
+		close(delivery.Send)
 		delivery.Close()
 	}()
 	err := delivery.Run()
