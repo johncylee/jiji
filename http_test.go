@@ -48,8 +48,7 @@ func TestHTTP(t *testing.T) {
 		URL:    "http://localhost:8080/",
 	}
 	testDelivery(&transport, t)
-	transport.User = "johndoe"
-	transport.Password = "secret"
+	transport.URL = "http://johndoe:secret@localhost:8080/"
 	testDelivery(&transport, t)
 	close(quit)
 	<-done
