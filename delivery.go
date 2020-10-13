@@ -3,6 +3,7 @@ package jiji
 import (
 	"encoding/binary"
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/boltdb/bolt"
@@ -29,7 +30,9 @@ type Delivery struct {
 	db          *bolt.DB
 	connected   bool
 	reconnected chan bool
-	quit        chan struct{}
+	once        sync.Once
+	closing     chan struct{}
+	done        chan struct{}
 }
 
 type Transport interface {
@@ -128,7 +131,7 @@ func (t *Delivery) reconnect() {
 }
 
 func (t *Delivery) close() {
-	defer close(t.quit)
+	defer close(t.done)
 	if t.connected {
 		t.Transport.Close()
 	}
@@ -171,12 +174,13 @@ func (t *Delivery) close() {
 	return
 }
 
+func (t *Delivery) Done() <-chan struct{} {
+	return t.done
+}
+
 func (t *Delivery) Close() {
-	if t.quit == nil {
-		return
-	}
-	t.quit <- struct{}{}
-	<-t.quit
+	t.once.Do(func() { close(t.closing) })
+	<-t.done
 }
 
 func (t *Delivery) Run() (err error) {
@@ -184,7 +188,8 @@ func (t *Delivery) Run() (err error) {
 	if err != nil {
 		return
 	}
-	t.quit = make(chan struct{})
+	t.closing = make(chan struct{})
+	t.done = make(chan struct{})
 	defer t.close()
 	err = t.Transport.Connect()
 	if err != nil {
@@ -193,7 +198,7 @@ func (t *Delivery) Run() (err error) {
 	t.connected = true
 	t.reconnected = make(chan bool)
 FOR:
-	for {
+	for closing := false; !closing; {
 		if t.connected {
 			err = t.send_queue()
 			if err != nil {
@@ -208,10 +213,10 @@ FOR:
 			}
 		case t.connected = <-t.reconnected:
 			Logger.Println("Reconnected")
-		case <-t.quit:
-			debugln("Quitting Delivery.Run()")
-			break FOR
+		case <-t.closing:
+			closing = true
 		}
 	}
+	debugln("Quitting Delivery.Run()")
 	return
 }
