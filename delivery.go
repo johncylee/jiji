@@ -29,7 +29,7 @@ type Delivery struct {
 	Transport   Transport
 	db          *bolt.DB
 	connected   bool
-	reconnected chan bool
+	reconnected chan struct{}
 	once        sync.Once
 	closing     chan struct{}
 	done        chan struct{}
@@ -126,7 +126,7 @@ func (t *Delivery) reconnect() {
 			break
 		}
 	}
-	t.reconnected <- true
+	t.reconnected <- struct{}{}
 	return
 }
 
@@ -196,7 +196,7 @@ func (t *Delivery) Run() (err error) {
 		return
 	}
 	t.connected = true
-	t.reconnected = make(chan bool)
+	t.reconnected = make(chan struct{})
 FOR:
 	for closing := false; !closing; {
 		if t.connected {
@@ -211,7 +211,8 @@ FOR:
 			if err != nil {
 				break FOR
 			}
-		case t.connected = <-t.reconnected:
+		case <-t.reconnected:
+			t.connected = true
 			Logger.Println("Reconnected")
 		case <-t.closing:
 			closing = true
