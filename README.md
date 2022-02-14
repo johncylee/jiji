@@ -1,4 +1,4 @@
-[![godoc](https://godoc.org/github.com/johncylee/jiji?status.svg)](https://godoc.org/github.com/johncylee/jiji)
+[![Go Reference](https://pkg.go.dev/badge/github.com/johncylee/jiji.svg)](https://pkg.go.dev/github.com/johncylee/jiji)
 
 # Introduction
 
@@ -14,4 +14,4 @@ Ghibli.
 
 # Documentation
 
-Check [here](https://godoc.org/github.com/johncylee/jiji) for API document.
+Check [here](https://pkg.go.dev/github.com/johncylee/jiji) for API document.
