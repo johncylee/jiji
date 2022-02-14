@@ -3,7 +3,7 @@ module github.com/johncylee/jiji
 go 1.17
 
 require (
-	github.com/boltdb/bolt v1.3.1
+	go.etcd.io/bbolt v1.3.6
 	gopkg.in/confluentinc/confluent-kafka-go.v1 v1.8.2
 )
 

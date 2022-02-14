@@ -6,10 +6,10 @@ Reliable messaging with persistent storage. Project name *Jiji* was named after
 the black cat in the anime film *Kiki's Delivery Service* produced by Studio
 Ghibli.
 
-* [BoltDB][] as persistent storage.
+* [bbolt][] as persistent storage.
 * Only [Kafka][] and HTTP are supported for now as messaging target.
 
-[BoltDB]: https://github.com/boltdb
+[bbolt]: https://github.com/etcd-io/bbolt
 [Kafka]: https://kafka.apache.org/
 
 # Documentation
