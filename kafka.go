@@ -1,4 +1,6 @@
-//go:build !windows
+//go:build cgo && (((darwin || linux) && amd64) || dynamic)
+
+// build constraint introduced by confluent-kafka-go
 
 package jiji
 
