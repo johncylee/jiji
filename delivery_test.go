@@ -92,11 +92,7 @@ func TestDelivery(t *testing.T) {
 
 func testDelivery(transport Transport, t *testing.T) {
 	Retry = 500 * time.Millisecond
-	delivery := Delivery{
-		DBPath:    DBPath,
-		Send:      make(chan interface{}, 10),
-		Transport: transport,
-	}
+	delivery := NewDelivery(DBPath, make(chan interface{}, 10), transport)
 	go func() {
 		for i := 1; i < 10; i++ {
 			unix := time.Now().Unix()
@@ -117,11 +113,7 @@ func TestCloseSend(t *testing.T) {
 		Available: true,
 		T:         t,
 	}
-	delivery := Delivery{
-		DBPath:    DBPath,
-		Send:      make(chan interface{}),
-		Transport: &transport,
-	}
+	delivery := NewDelivery(DBPath, make(chan interface{}), &transport)
 	go func() {
 		time.Sleep(time.Second)
 		close(delivery.Send)

@@ -33,12 +33,25 @@ type Delivery struct {
 	once        sync.Once
 	closing     chan struct{}
 	done        chan struct{}
+	mutex       sync.Mutex
 }
 
 type Transport interface {
 	Connect() error
 	Close()
 	Send([]byte) error
+}
+
+func NewDelivery(dbpath string, send chan interface{}, transport Transport) (d *Delivery) {
+	d = &Delivery{
+		DBPath:    dbpath,
+		Send:      send,
+		Transport: transport,
+	}
+	d.closing = make(chan struct{})
+	d.done = make(chan struct{})
+	d.reconnected = make(chan struct{})
+	return
 }
 
 func (t *Delivery) send_msg(msg interface{}) (err error) {
@@ -179,24 +192,27 @@ func (t *Delivery) Done() <-chan struct{} {
 }
 
 func (t *Delivery) Close() {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+	if t.db == nil {
+		Logger.Println("Close() called before Run()")
+		return
+	}
 	t.once.Do(func() { close(t.closing) })
 	<-t.done
 }
 
 func (t *Delivery) Run() (err error) {
-	t.db, err = bolt.Open(t.DBPath, 0600, nil)
-	if err != nil {
-		return
+	t.mutex.Lock()
+	if t.db, err = bolt.Open(t.DBPath, 0600, nil); err != nil {
+		goto EARLY
 	}
-	t.closing = make(chan struct{})
-	t.done = make(chan struct{})
 	defer t.close()
-	err = t.Transport.Connect()
-	if err != nil {
-		return
+	if err = t.Transport.Connect(); err != nil {
+		goto EARLY
 	}
 	t.connected = true
-	t.reconnected = make(chan struct{})
+	t.mutex.Unlock()
 FOR:
 	for closing := false; !closing; {
 		if t.connected {
@@ -219,5 +235,8 @@ FOR:
 		}
 	}
 	debugln("Quitting Delivery.Run()")
+	return
+EARLY:
+	t.mutex.Unlock()
 	return
 }
