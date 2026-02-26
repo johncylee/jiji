@@ -7,17 +7,17 @@ import (
 
 // Compatible with standard package "log"
 type StdLogger interface {
-	Print(...interface{})
-	Printf(string, ...interface{})
-	Println(...interface{})
+	Print(...any)
+	Printf(string, ...any)
+	Println(...any)
 
-	Fatal(...interface{})
-	Fatalf(string, ...interface{})
-	Fatalln(...interface{})
+	Fatal(...any)
+	Fatalf(string, ...any)
+	Fatalln(...any)
 
-	Panic(...interface{})
-	Panicf(string, ...interface{})
-	Panicln(...interface{})
+	Panic(...any)
+	Panicf(string, ...any)
+	Panicln(...any)
 }
 
 // May be replaced by another logger
@@ -29,19 +29,19 @@ func init() {
 	Logger = log.New(os.Stderr, "jiji:", log.LstdFlags)
 }
 
-func debug(args ...interface{}) {
+func debug(args ...any) {
 	if Verbose {
 		Logger.Print(args...)
 	}
 }
 
-func debugf(s string, args ...interface{}) {
+func debugf(s string, args ...any) {
 	if Verbose {
 		Logger.Printf(s, args...)
 	}
 }
 
-func debugln(args ...interface{}) {
+func debugln(args ...any) {
 	if Verbose {
 		Logger.Println(args...)
 	}

@@ -32,7 +32,6 @@ func (t *Kafka) Connect() (err error) {
 
 func (t *Kafka) Close() {
 	t.producer.Close()
-	return
 }
 
 func (t *Kafka) Send(msg []byte) (err error) {

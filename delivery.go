@@ -25,7 +25,7 @@ var Retry = 5 * time.Second
 
 type Delivery struct {
 	DBPath      string
-	Send        chan interface{}
+	Send        chan any
 	Transport   Transport
 	db          *bolt.DB
 	connected   bool
@@ -42,7 +42,7 @@ type Transport interface {
 	Send([]byte) error
 }
 
-func NewDelivery(dbpath string, send chan interface{}, transport Transport) (d *Delivery) {
+func NewDelivery(dbpath string, send chan any, transport Transport) (d *Delivery) {
 	d = &Delivery{
 		DBPath:    dbpath,
 		Send:      send,
@@ -54,7 +54,7 @@ func NewDelivery(dbpath string, send chan interface{}, transport Transport) (d *
 	return
 }
 
-func (t *Delivery) send_msg(msg interface{}) (err error) {
+func (t *Delivery) send_msg(msg any) (err error) {
 	var id uint64
 	tx, err := t.db.Begin(true)
 	bkt, err := tx.CreateBucketIfNotExists([]byte(SYNC_BUCKET))
@@ -140,7 +140,6 @@ func (t *Delivery) reconnect() {
 		}
 	}
 	t.reconnected <- struct{}{}
-	return
 }
 
 func (t *Delivery) close() {
@@ -184,7 +183,6 @@ func (t *Delivery) close() {
 	if err != nil {
 		Logger.Println("dump failed, data lost:", err)
 	}
-	return
 }
 
 func (t *Delivery) Done() <-chan struct{} {

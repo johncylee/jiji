@@ -7,7 +7,6 @@ func (t Print) Connect() error {
 }
 
 func (t Print) Close() {
-	return
 }
 
 func (t Print) Send(data []byte) error {
