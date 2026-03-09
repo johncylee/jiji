@@ -1,126 +1,117 @@
 package jiji
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
+	"math/rand/v2"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
 const (
-	DBPath = "testdb"
+	TESTDB = "testdb"
 )
 
-type MockNetError struct {
-	IsTimeout   bool
-	IsTemporary bool
-}
+var (
+	ConnectError error = errors.New("connect error")
+	SendError    error = errors.New("send error")
+)
 
 func init() {
 	slog.SetLogLoggerLevel(slog.LevelDebug)
-}
-
-func (t *MockNetError) Error() string {
-	return "MockNetError"
-}
-
-func (t *MockNetError) Timeout() bool {
-	return t.IsTimeout
-}
-
-func (t *MockNetError) Temporary() bool {
-	return t.IsTemporary
+	Retry = 50 * time.Millisecond
 }
 
 type MockTransport struct {
 	Available bool
 	connected bool
-	last      int64
-	T         *testing.T
+	last      int
 }
 
-func (t *MockTransport) Connect() error {
-	if t.Available {
-		t.connected = true
-		return nil
+func (t *MockTransport) Connect(ctx context.Context) error {
+	t.connected = t.Available
+	if !t.connected {
+		return ConnectError
 	}
-	return &MockNetError{
-		IsTimeout:   true,
-		IsTemporary: true,
-	}
+	return nil
 }
 
 func (t *MockTransport) Close() {
 	t.connected = false
 }
 
-func (t *MockTransport) Send(buf []byte) error {
-	if !t.Available {
-		return &MockNetError{
-			IsTimeout:   true,
-			IsTemporary: true,
-		}
+func (t *MockTransport) Send(buf []byte, ctx context.Context) error {
+	t.connected = t.Available
+	if !t.connected {
+		return SendError
 	}
 	Logger.Info("MockTransport.Send", "msg", string(buf))
-	var i int64
+	var i int
 	err := json.Unmarshal(buf, &i)
 	if err != nil {
 		return err
 	}
-	if i < t.last {
-		t.T.Error("Incorrect order:", i)
+	if i <= t.last {
+		return fmt.Errorf("Incorrect order: %d", i)
 	}
 	t.last = i
 	return nil
 }
 
 func TestDelivery(t *testing.T) {
-	transport := MockTransport{
+	transport := &MockTransport{
 		Available: true,
-		T:         t,
 	}
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		Logger.Info("MockTransport unavailable")
-		transport.Available = false
-		time.Sleep(400 * time.Millisecond)
-		Logger.Info("MockTransport available")
+	on := func() {
+		Logger.Info("MockTransport becomes available")
 		transport.Available = true
-	}()
-	testDelivery(&transport, t)
-}
-
-func testDelivery(transport Transport, t *testing.T) {
-	Retry = 500 * time.Millisecond
-	delivery := NewDelivery(DBPath, make(chan any, 10), transport)
-	go func() {
-		for i := 1; i < 10; i++ {
-			unix := time.Now().Unix()
-			Logger.Info("client deliver", "msg", unix)
-			delivery.Send <- unix
-			time.Sleep(100 * time.Millisecond)
+	}
+	off := func() {
+		Logger.Info("MockTransport becomes unavailable")
+		transport.Available = false
+	}
+	var d time.Duration
+	done := make(chan struct{})
+	for i := range 8 {
+		d += time.Duration(rand.Int64N(50)+50) * time.Millisecond
+		switch {
+		case i%2 == 0:
+			time.AfterFunc(d, off)
+		case i == 7:
+			time.AfterFunc(d, func() {
+				on()
+				close(done)
+			})
+		default:
+			time.AfterFunc(d, on)
 		}
-		delivery.Close()
-	}()
-	err := delivery.Run()
-	if err != nil {
-		t.Error(err)
 	}
+	n := 10
+	testDelivery(t, transport, n)
+	if transport.last != n {
+		t.Fatal("expect", n)
+	}
+	<-done
 }
 
-func TestCloseSend(t *testing.T) {
-	transport := MockTransport{
-		Available: true,
-		T:         t,
-	}
-	delivery := NewDelivery(DBPath, make(chan any), &transport)
+func testDelivery(t *testing.T, transport Transport, n int) {
+	send := make(chan any, n)
+	db := filepath.Join(t.TempDir(), TESTDB)
+	delivery := NewDelivery(db, send, transport)
+	done := make(chan error)
 	go func() {
-		time.Sleep(time.Second)
-		close(delivery.Send)
-		delivery.Close()
+		done <- delivery.Run()
 	}()
-	err := delivery.Run()
-	if err != nil {
-		t.Error(err)
+	for counter := range n {
+		send <- counter + 1
+		time.Sleep(100 * time.Millisecond)
+	}
+	close(send)
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }

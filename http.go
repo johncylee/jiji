@@ -2,60 +2,40 @@ package jiji
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
 )
 
 type HTTP struct {
-	Client   *http.Client
-	URL      string
-	user     string
-	password string
+	Client *http.Client
+	URL    *url.URL
 }
 
 const (
 	ContentTypeJSON = "application/json"
 )
 
-func (t *HTTP) Connect() (err error) {
-	url, err := url.Parse(t.URL)
-	if err != nil {
-		return
-	}
-	if url.User != nil {
-		if password, set := url.User.Password(); set {
-			t.user = url.User.Username()
-			t.password = password
-		}
-	}
-	return
+// Connect is a dummy function in case of HTTP
+func (t *HTTP) Connect(ctx context.Context) (err error) {
+	return nil
 }
 
 func (t *HTTP) Close() {
-	t.Client.CloseIdleConnections()
 }
 
-func (t *HTTP) Send(b []byte) (err error) {
-	var res *http.Response
+// Send POST to HTTP.URL with Content-Type "application/json". Supports HTTP basic auth and context.
+func (t *HTTP) Send(b []byte, ctx context.Context) (err error) {
 	body := bytes.NewReader(b)
-	if t.user == "" {
-		res, err = t.Client.Post(t.URL, ContentTypeJSON, body)
-		if err != nil {
-			return
-		}
-	} else {
-		var req *http.Request
-		req, err = http.NewRequest(http.MethodPost, t.URL, body)
-		if err != nil {
-			return
-		}
-		req.Header.Set("Content-Type", ContentTypeJSON)
-		req.SetBasicAuth(t.user, t.password)
-		res, err = t.Client.Do(req)
-		if err != nil {
-			return
-		}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.URL.String(), body)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", ContentTypeJSON)
+	res, err := t.Client.Do(req)
+	if err != nil {
+		return
 	}
 	defer res.Body.Close()
 	if res.StatusCode == http.StatusOK {

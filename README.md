@@ -7,7 +7,9 @@ the black cat in the anime film *Kiki's Delivery Service* produced by Studio
 Ghibli.
 
 * [bbolt][] as persistent storage.
-* Only [Kafka][] and HTTP are supported for now as messaging target.
+* "Print" as a dummy target.
+* "HTTP" posts application/json to "HTTP.URL".
+* [Kafka][] requires update. Obsolete for now.
 
 [bbolt]: https://github.com/etcd-io/bbolt
 [Kafka]: https://kafka.apache.org/

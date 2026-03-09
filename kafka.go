@@ -8,10 +8,7 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/kafka"
 )
 
-const (
-	KAFKA_TIMEOUT_MS = 30000 // 30 seconds
-)
-
+// "Kafka" transport needs update. Obsolete for now.
 type Kafka struct {
 	Brokers        string
 	Topic          string

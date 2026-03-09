@@ -1,6 +1,7 @@
 package jiji
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"sync"
@@ -10,7 +11,7 @@ import (
 )
 
 const (
-	SYNC_BUCKET = "sync"
+	bucket_SYNC = "sync"
 )
 
 // itob returns an 8-byte big endian representation of v.
@@ -21,104 +22,86 @@ func itob(v uint64) []byte {
 }
 
 // retry interval
-var Retry = 5 * time.Second
+var Retry = 10 * time.Second
 
 type Delivery struct {
-	DBPath      string
-	Send        chan any
-	Transport   Transport
-	db          *bolt.DB
-	connected   bool
-	reconnected chan struct{}
-	once        sync.Once
-	closing     chan struct{}
-	done        chan struct{}
-	mutex       sync.Mutex
+	// DBPath is the path of bbolt db.
+	DBPath string
+	// Send is the entrance of delivery service. Send anything supported by json.Marshal
+	// to it. Close it to stop Delivery.Run().
+	Send <-chan any
+	// Transport agent. Could be Print or HTTP.
+	Transport  Transport
+	db         *bolt.DB
+	connecting sync.Mutex
+	connected  chan struct{}
+	ctx        context.Context
 }
 
 type Transport interface {
-	Connect() error
+	Connect(ctx context.Context) error
 	Close()
-	Send([]byte) error
+	Send(b []byte, ctx context.Context) error
 }
 
-func NewDelivery(dbpath string, send chan any, transport Transport) (d *Delivery) {
+func NewDelivery(dbpath string, send <-chan any, transport Transport) (d *Delivery) {
 	d = &Delivery{
 		DBPath:    dbpath,
 		Send:      send,
 		Transport: transport,
 	}
-	d.closing = make(chan struct{})
-	d.done = make(chan struct{})
-	d.reconnected = make(chan struct{})
+	d.connected = make(chan struct{})
 	return
 }
 
-func (t *Delivery) send_msg(msg any) (err error) {
+func (t *Delivery) enqueue(b []byte) (err error) {
 	var id uint64
 	tx, err := t.db.Begin(true)
-	bkt, err := tx.CreateBucketIfNotExists([]byte(SYNC_BUCKET))
+	if err != nil {
+		return
+	}
+	bkt, err := tx.CreateBucketIfNotExists([]byte(bucket_SYNC))
 	if err != nil {
 		tx.Rollback()
 		return
 	}
-	for msg != nil {
-		buf, err := json.Marshal(msg)
-		if err != nil {
-			Logger.Error("json.Marshal", "error", err)
-			// ignore marshal error
-			goto NEXT
-		}
-		if t.connected {
-			err = t.Transport.Send(buf)
-			if err == nil {
-				goto NEXT
-			}
-			Logger.Error("Transport.Send", "error", err)
-			t.connected = false
-			go t.reconnect()
-		}
-		id, err = bkt.NextSequence()
-		if err != nil {
-			break
-		}
-		Logger.Debug("Bucket.Put", "key", id, "value", string(buf))
-		err = bkt.Put(itob(id), buf)
-		if err != nil {
-			break
-		}
-	NEXT: // drain the channel
-		select {
-		case msg = <-t.Send:
-		default:
-			msg = nil
-		}
+	if id, err = bkt.NextSequence(); err != nil {
+		tx.Rollback()
+		return
 	}
-	e := tx.Commit()
-	if e != nil {
-		err = e
+	Logger.Debug("Bucket.Put", "key", id, "value", string(b))
+	if err = bkt.Put(itob(id), b); err != nil {
+		tx.Rollback()
+		return
 	}
+	err = tx.Commit()
 	return
 }
 
-func (t *Delivery) send_queue() (err error) {
+func (t *Delivery) send(b []byte) error {
+	Logger.Debug("send", "msg", string(b))
+	ctx, cancel := context.WithTimeout(t.ctx, Retry)
+	defer cancel()
+	return t.Transport.Send(b, ctx)
+}
+
+func (t *Delivery) send_queue() (connected bool, err error) {
+	Logger.Debug("send_queue")
+	connected = true
 	err = t.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket([]byte(SYNC_BUCKET))
+		b := tx.Bucket([]byte(bucket_SYNC))
 		if b == nil { // empty
 			return nil
 		}
 		c := b.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			Logger.Debug("Transport.Send", "value", string(v))
-			err = t.Transport.Send(v)
-			if err != nil {
-				Logger.Error("Transport.Send", "error", err)
-				t.connected = false
-				go t.reconnect()
+			if e := t.send(v); e != nil {
+				Logger.Warn("Transport.Send", "error", e)
+				connected = false
 				return nil // commit
 			}
-			err = c.Delete()
-			if err != nil {
+			if e := c.Delete(); e != nil {
+				Logger.Error("Cursor.Delete", "error", e)
 				return nil // at least once
 			}
 		}
@@ -127,113 +110,72 @@ func (t *Delivery) send_queue() (err error) {
 	return
 }
 
-func (t *Delivery) reconnect() {
-	Logger.Debug("reconnect")
-	t.Transport.Close()
+func (t *Delivery) connect() {
+	defer t.connecting.Unlock()
+	var err error
 	for {
-		Logger.Info("Reconnect in", "seconds", float64(Retry)/float64(time.Second))
-		time.Sleep(Retry)
-		err := t.Transport.Connect()
-		if err == nil {
-			break
-		}
-	}
-	t.reconnected <- struct{}{}
-}
-
-func (t *Delivery) close() {
-	defer close(t.done)
-	if t.connected {
 		t.Transport.Close()
-	}
-	defer t.db.Close()
-	err := t.db.Update(func(tx *bolt.Tx) (err error) {
-		b, err := tx.CreateBucketIfNotExists([]byte(SYNC_BUCKET))
-		if err != nil {
+		Logger.Info("connect", "timeout", Retry)
+		timer := time.After(Retry)
+		ctx, cancel := context.WithTimeout(t.ctx, Retry)
+		if err = t.Transport.Connect(ctx); err == nil {
+			Logger.Debug("connected")
+			cancel()
+			t.connected <- struct{}{}
 			return
 		}
-	FOR:
-		for {
-			select {
-			case msg, ok := <-t.Send:
-				if !ok {
-					break FOR
-				}
-				Logger.Debug("Close.Send", "msg", msg)
-				buf, err := json.Marshal(msg)
-				if err != nil {
-					Logger.Error("json.Marshal", "error", err)
-					continue
-				}
-				id, err := b.NextSequence()
-				if err != nil {
-					break FOR
-				}
-				err = b.Put(itob(id), buf)
-				if err != nil {
-					break FOR
-				}
-			default:
-				break FOR
-			}
+		cancel()
+		Logger.Warn("Transport.Connect", "error", err)
+		select {
+		case <-t.ctx.Done():
+			Logger.Debug("connect canceled")
+			return
+		case <-timer:
 		}
-		return
-	})
-	if err != nil {
-		Logger.Error("dump failed, data lost", "error", err)
 	}
 }
 
-func (t *Delivery) Done() <-chan struct{} {
-	return t.done
-}
-
-func (t *Delivery) Close() {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-	if t.db == nil {
-		Logger.Error("Close() called before Run()")
-		return
-	}
-	t.once.Do(func() { close(t.closing) })
-	<-t.done
-}
-
+// Run Delivery service. Close Delivery.Send channel to stop it.
 func (t *Delivery) Run() (err error) {
-	t.mutex.Lock()
 	if t.db, err = bolt.Open(t.DBPath, 0600, nil); err != nil {
-		goto EARLY
+		return
 	}
-	defer t.close()
-	if err = t.Transport.Connect(); err != nil {
-		goto EARLY
-	}
-	t.connected = true
-	t.mutex.Unlock()
-FOR:
-	for closing := false; !closing; {
-		if t.connected {
-			err = t.send_queue()
-			if err != nil {
-				break FOR
-			}
+	defer t.db.Close()
+	defer t.Transport.Close()
+	defer t.connecting.Lock()
+	var cancel context.CancelFunc
+	t.ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	connected := false
+	for {
+		if !connected && t.connecting.TryLock() {
+			Logger.Debug("call t.connect")
+			go t.connect()
 		}
 		select {
-		case msg := <-t.Send:
-			err = t.send_msg(msg)
-			if err != nil {
-				break FOR
+		case msg, ok := <-t.Send:
+			if !ok {
+				Logger.Info("send channel closed, exit")
+				return nil // channel closed, normal exit
 			}
-		case <-t.reconnected:
-			t.connected = true
-			Logger.Info("Reconnected")
-		case <-t.closing:
-			closing = true
+			var b []byte
+			if b, err = json.Marshal(msg); err != nil {
+				return
+			}
+			if connected {
+				if err = t.send(b); err == nil {
+					continue
+				}
+				connected = false
+			}
+			// not connected
+			if err = t.enqueue(b); err != nil {
+				return
+			}
+		case <-t.connected:
+			if connected, err = t.send_queue(); err != nil {
+				return
+			}
 		}
 	}
-	Logger.Debug("Quitting Delivery.Run()")
-	return
-EARLY:
-	t.mutex.Unlock()
-	return
 }
