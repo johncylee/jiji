@@ -48,19 +48,19 @@ FOR:
 		case *kafka.Message:
 			err = ev.TopicPartition.Error
 			if err != nil {
-				Logger.Println("Delivery failed:", err)
+				Logger.Error("Delivery failed", "error", err)
 				return
 			}
-			debugf("Delivered to topic %s [%d] at offset %v\n",
-				*ev.TopicPartition.Topic,
-				ev.TopicPartition.Partition,
-				ev.TopicPartition.Offset)
+			Logger.Debug("Delivered to",
+				"topic", *ev.TopicPartition.Topic,
+				"partition", ev.TopicPartition.Partition,
+				"offset", ev.TopicPartition.Offset)
 			break FOR
 		case kafka.Error:
 			err = ev
 			break FOR
 		default:
-			Logger.Println("Ignored event:", e)
+			Logger.Warn("Ignored", "event", e)
 		}
 	}
 	return

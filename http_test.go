@@ -13,8 +13,7 @@ func MockHTTPServ(quit chan struct{}) {
 		defer req.Body.Close()
 		user, pass, ok := req.BasicAuth()
 		if ok {
-			Logger.Printf("MockHTTPServ.BasicAuth: %s, %s",
-				user, pass)
+			Logger.Info("MockHTTPServ.BasicAuth", "user", user, "pass", pass)
 		}
 		b, err := ioutil.ReadAll(req.Body)
 		if err != nil {
@@ -22,7 +21,7 @@ func MockHTTPServ(quit chan struct{}) {
 			w.Write([]byte(err.Error()))
 			return
 		}
-		Logger.Println("MockHTTPServ:", string(b))
+		Logger.Info("MockHTTPServ", "req.Body", string(b))
 		w.Write([]byte("OK"))
 	})
 	srv := http.Server{
@@ -30,7 +29,7 @@ func MockHTTPServ(quit chan struct{}) {
 		Handler: mux,
 	}
 	go func() {
-		Logger.Println(srv.ListenAndServe())
+		Logger.Info("http.ListenAndServe", "error", srv.ListenAndServe())
 	}()
 	<-quit
 	srv.Shutdown(context.Background())

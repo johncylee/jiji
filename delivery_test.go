@@ -2,6 +2,7 @@ package jiji
 
 import (
 	"encoding/json"
+	"log/slog"
 	"testing"
 	"time"
 )
@@ -16,7 +17,7 @@ type MockNetError struct {
 }
 
 func init() {
-	Verbose = true
+	slog.SetLogLoggerLevel(slog.LevelDebug)
 }
 
 func (t *MockNetError) Error() string {
@@ -60,7 +61,7 @@ func (t *MockTransport) Send(buf []byte) error {
 			IsTemporary: true,
 		}
 	}
-	Logger.Println("MockTransport.Send:", string(buf))
+	Logger.Info("MockTransport.Send", "msg", string(buf))
 	var i int64
 	err := json.Unmarshal(buf, &i)
 	if err != nil {
@@ -80,10 +81,10 @@ func TestDelivery(t *testing.T) {
 	}
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		Logger.Println("MockTransport unavailable")
+		Logger.Info("MockTransport unavailable")
 		transport.Available = false
 		time.Sleep(400 * time.Millisecond)
-		Logger.Println("MockTransport available")
+		Logger.Info("MockTransport available")
 		transport.Available = true
 	}()
 	testDelivery(&transport, t)
@@ -95,7 +96,7 @@ func testDelivery(transport Transport, t *testing.T) {
 	go func() {
 		for i := 1; i < 10; i++ {
 			unix := time.Now().Unix()
-			Logger.Println("client deliver:", unix)
+			Logger.Info("client deliver", "msg", unix)
 			delivery.Send <- unix
 			time.Sleep(100 * time.Millisecond)
 		}

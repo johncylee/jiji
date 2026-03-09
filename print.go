@@ -10,6 +10,6 @@ func (t Print) Close() {
 }
 
 func (t Print) Send(data []byte) error {
-	Logger.Println("Send:", string(data))
+	Logger.Info("Send", "msg", string(data))
 	return nil
 }

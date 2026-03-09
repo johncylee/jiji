@@ -65,7 +65,7 @@ func (t *Delivery) send_msg(msg any) (err error) {
 	for msg != nil {
 		buf, err := json.Marshal(msg)
 		if err != nil {
-			Logger.Println("json.Marshal:", err)
+			Logger.Error("json.Marshal", "error", err)
 			// ignore marshal error
 			goto NEXT
 		}
@@ -74,7 +74,7 @@ func (t *Delivery) send_msg(msg any) (err error) {
 			if err == nil {
 				goto NEXT
 			}
-			Logger.Println("Transport.Send:", err)
+			Logger.Error("Transport.Send", "error", err)
 			t.connected = false
 			go t.reconnect()
 		}
@@ -82,7 +82,7 @@ func (t *Delivery) send_msg(msg any) (err error) {
 		if err != nil {
 			break
 		}
-		debugln("send_msg.Put:", string(buf))
+		Logger.Debug("Bucket.Put", "key", id, "value", string(buf))
 		err = bkt.Put(itob(id), buf)
 		if err != nil {
 			break
@@ -109,10 +109,10 @@ func (t *Delivery) send_queue() (err error) {
 		}
 		c := b.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			debugln("send_queue:", string(v))
+			Logger.Debug("Transport.Send", "value", string(v))
 			err = t.Transport.Send(v)
 			if err != nil {
-				Logger.Println("Transport.Send:", err)
+				Logger.Error("Transport.Send", "error", err)
 				t.connected = false
 				go t.reconnect()
 				return nil // commit
@@ -128,11 +128,10 @@ func (t *Delivery) send_queue() (err error) {
 }
 
 func (t *Delivery) reconnect() {
-	debugln("reconnect")
+	Logger.Debug("reconnect")
 	t.Transport.Close()
 	for {
-		Logger.Printf("Reconnect in %.2f seconds...",
-			float64(Retry)/float64(time.Second))
+		Logger.Info("Reconnect in", "seconds", float64(Retry)/float64(time.Second))
 		time.Sleep(Retry)
 		err := t.Transport.Connect()
 		if err == nil {
@@ -160,10 +159,10 @@ func (t *Delivery) close() {
 				if !ok {
 					break FOR
 				}
-				debugln("Close.Send:", msg)
+				Logger.Debug("Close.Send", "msg", msg)
 				buf, err := json.Marshal(msg)
 				if err != nil {
-					Logger.Println("json.Marshal:", err)
+					Logger.Error("json.Marshal", "error", err)
 					continue
 				}
 				id, err := b.NextSequence()
@@ -181,7 +180,7 @@ func (t *Delivery) close() {
 		return
 	})
 	if err != nil {
-		Logger.Println("dump failed, data lost:", err)
+		Logger.Error("dump failed, data lost", "error", err)
 	}
 }
 
@@ -193,7 +192,7 @@ func (t *Delivery) Close() {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 	if t.db == nil {
-		Logger.Println("Close() called before Run()")
+		Logger.Error("Close() called before Run()")
 		return
 	}
 	t.once.Do(func() { close(t.closing) })
@@ -227,12 +226,12 @@ FOR:
 			}
 		case <-t.reconnected:
 			t.connected = true
-			Logger.Println("Reconnected")
+			Logger.Info("Reconnected")
 		case <-t.closing:
 			closing = true
 		}
 	}
-	debugln("Quitting Delivery.Run()")
+	Logger.Debug("Quitting Delivery.Run()")
 	return
 EARLY:
 	t.mutex.Unlock()

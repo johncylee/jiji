@@ -62,7 +62,7 @@ func (t *HTTP) Send(b []byte) (err error) {
 		return
 	}
 	if res.StatusCode < http.StatusInternalServerError {
-		Logger.Println("http.Send:", res.Status)
+		Logger.Error("http.Send", "status", res.Status)
 		return
 	}
 	// only return server side error
