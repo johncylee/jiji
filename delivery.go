@@ -31,11 +31,10 @@ type Delivery struct {
 	// to it. Close it to stop Delivery.Run().
 	Send <-chan any
 	// Transport agent. Could be Print or HTTP.
-	Transport  Transport
-	db         *bolt.DB
-	connecting sync.Mutex
-	connected  chan struct{}
-	ctx        context.Context
+	Transport Transport
+	db        *bolt.DB
+	connected chan struct{}
+	ctx       context.Context
 }
 
 type Transport interface {
@@ -50,7 +49,7 @@ func NewDelivery(dbpath string, send <-chan any, transport Transport) (d *Delive
 		Send:      send,
 		Transport: transport,
 	}
-	d.connected = make(chan struct{})
+	d.connected = make(chan struct{}, 1)
 	return
 }
 
@@ -113,7 +112,7 @@ func (t *Delivery) send_queue() (connected bool, err error) {
 }
 
 func (t *Delivery) connect() {
-	defer t.connecting.Unlock()
+	Logger.Debug("Delivery.connect called")
 	var err error
 	for {
 		t.Transport.Close()
@@ -144,15 +143,14 @@ func (t *Delivery) Run() (err error) {
 	}
 	defer t.db.Close()
 	defer t.Transport.Close()
-	defer t.connecting.Lock()
 	var cancel context.CancelFunc
 	t.ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 	connected := false
+	connectonce := sync.OnceFunc(t.connect)
 	for {
-		if !connected && t.connecting.TryLock() {
-			Logger.Debug("Delivery.connect called")
-			go t.connect()
+		if !connected {
+			connectonce()
 		}
 		select {
 		case msg, ok := <-t.Send:
@@ -176,6 +174,7 @@ func (t *Delivery) Run() (err error) {
 				return
 			}
 		case <-t.connected:
+			connectonce = sync.OnceFunc(t.connect)
 			if connected, err = t.send_queue(); err != nil {
 				return
 			}
