@@ -78,15 +78,18 @@ func (t *Delivery) enqueue(b []byte) (err error) {
 	return
 }
 
-func (t *Delivery) send(b []byte) error {
-	Logger.Debug("send", "msg", string(b))
+func (t *Delivery) send(b []byte) (err error) {
+	Logger.Debug("Delivery.send", "msg", string(b))
 	ctx, cancel := context.WithTimeout(t.ctx, Retry)
 	defer cancel()
-	return t.Transport.Send(b, ctx)
+	if err = t.Transport.Send(b, ctx); err != nil {
+		Logger.Warn("Transport.Send", "error", err)
+	}
+	return
 }
 
 func (t *Delivery) send_queue() (connected bool, err error) {
-	Logger.Debug("send_queue")
+	Logger.Debug("Delivery.send_queue")
 	connected = true
 	err = t.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket_SYNC))
@@ -96,7 +99,6 @@ func (t *Delivery) send_queue() (connected bool, err error) {
 		c := b.Cursor()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			if e := t.send(v); e != nil {
-				Logger.Warn("Transport.Send", "error", e)
 				connected = false
 				return nil // commit
 			}
@@ -115,11 +117,11 @@ func (t *Delivery) connect() {
 	var err error
 	for {
 		t.Transport.Close()
-		Logger.Info("connect", "timeout", Retry)
+		Logger.Info("Delivery.connect", "timeout", Retry)
 		timer := time.After(Retry)
 		ctx, cancel := context.WithTimeout(t.ctx, Retry)
 		if err = t.Transport.Connect(ctx); err == nil {
-			Logger.Debug("connected")
+			Logger.Debug("Delivery connected")
 			cancel()
 			t.connected <- struct{}{}
 			return
@@ -128,7 +130,7 @@ func (t *Delivery) connect() {
 		Logger.Warn("Transport.Connect", "error", err)
 		select {
 		case <-t.ctx.Done():
-			Logger.Debug("connect canceled")
+			Logger.Debug("Delivery.connect canceled")
 			return
 		case <-timer:
 		}
@@ -149,14 +151,15 @@ func (t *Delivery) Run() (err error) {
 	connected := false
 	for {
 		if !connected && t.connecting.TryLock() {
-			Logger.Debug("call t.connect")
+			Logger.Debug("Delivery.connect called")
 			go t.connect()
 		}
 		select {
 		case msg, ok := <-t.Send:
 			if !ok {
-				Logger.Info("send channel closed, exit")
-				return nil // channel closed, normal exit
+				Logger.Info("Delivery.Send closed, exit")
+				_, err = t.send_queue()
+				return err
 			}
 			var b []byte
 			if b, err = json.Marshal(msg); err != nil {

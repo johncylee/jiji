@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"math/rand/v2"
 	"path/filepath"
@@ -22,6 +23,7 @@ var (
 )
 
 func init() {
+	log.Default().SetFlags(0)
 	slog.SetLogLoggerLevel(slog.LevelDebug)
 	Retry = 50 * time.Millisecond
 }
@@ -49,7 +51,7 @@ func (t *MockTransport) Send(buf []byte, ctx context.Context) error {
 	if !t.connected {
 		return SendError
 	}
-	Logger.Info("MockTransport.Send", "msg", string(buf))
+	Logger.Debug("MockTransport.Send", "msg", string(buf))
 	var i int
 	err := json.Unmarshal(buf, &i)
 	if err != nil {
@@ -67,21 +69,22 @@ func TestDelivery(t *testing.T) {
 		Available: true,
 	}
 	on := func() {
-		Logger.Info("MockTransport becomes available")
+		Logger.Debug("MockTransport becomes available")
 		transport.Available = true
 	}
 	off := func() {
-		Logger.Info("MockTransport becomes unavailable")
+		Logger.Debug("MockTransport becomes unavailable")
 		transport.Available = false
 	}
 	var d time.Duration
 	done := make(chan struct{})
-	for i := range 8 {
+	n := 10
+	for i := range n {
 		d += time.Duration(rand.Int64N(50)+50) * time.Millisecond
 		switch {
 		case i%2 == 0:
 			time.AfterFunc(d, off)
-		case i == 7:
+		case i == n-1: // last one
 			time.AfterFunc(d, func() {
 				on()
 				close(done)
@@ -90,7 +93,6 @@ func TestDelivery(t *testing.T) {
 			time.AfterFunc(d, on)
 		}
 	}
-	n := 10
 	testDelivery(t, transport, n)
 	if transport.last != n {
 		t.Fatal("expect", n)
